@@ -186,7 +186,7 @@ public final class OrderStreamProcessorImpl implements OrderStreamProcessor {
 
     outputDeliveries.sort(
         Comparator
-            .comparing((OutputDelivery d) -> Instant.parse(d.deliveryTime()))
+            .comparing(OutputDelivery::deliveryTime)
             .thenComparing(OutputDelivery::deliveryId)
     );
     return outputDeliveries;
@@ -203,7 +203,7 @@ public final class OrderStreamProcessorImpl implements OrderStreamProcessor {
   private OutputDelivery buildOutputDelivery(final String deliveryId, final List<Order> orders) {
     orders.sort(Comparator.comparing(Order::orderId).reversed());
 
-    final String rawDeliveryTime = orders.getFirst().delivery().rawDeliveryTime();
+    final Instant deliveryTime = orders.getFirst().delivery().deliveryTime();
 
     boolean anyDelivered = false;
     int sum = 0;
@@ -225,7 +225,7 @@ public final class OrderStreamProcessorImpl implements OrderStreamProcessor {
 
     return new OutputDelivery.Builder()
         .deliveryId(deliveryId)
-        .deliveryTime(rawDeliveryTime)
+        .deliveryTime(deliveryTime)
         .deliveryStatus(deliveryStatus)
         .orders(outputOrders)
         .totalAmount(totalAmount)

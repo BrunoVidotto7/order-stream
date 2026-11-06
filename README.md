@@ -120,7 +120,7 @@ Each non-blank line is one complete JSON object:
 | `order_id` | String | Order identifier, expected to be unique. Ordering uses lexicographic string comparison, not numeric comparison. |
 | `order_status` | String | `created`, `delivered`, or `cancelled` (case-insensitive on input). |
 | `delivery.delivery_id` | String | Groups orders into a delivery. |
-| `delivery.delivery_time` | ISO-8601 instant | Parsed to `Instant` for sorting and preserved as the original string for output. |
+| `delivery.delivery_time` | ISO-8601 instant | Bound to `java.time.Instant`; used for sorting and serialized back as an ISO-8601 string. |
 | `amount` | Integer or `null` | Amount in cents. May be absent or `null`. |
 
 Handling rules:
@@ -192,13 +192,13 @@ This means cancelled order amounts never inflate `total_amount`, and a delivery 
 
 **Payoff:** output ordering is reproducible for a given input and does not depend on map iteration order — a property the fixture tests enforce with order-sensitive array comparison.
 
-### Wire-model fidelity with records and custom Jackson hooks
+### Wire-model fidelity with records and standard time types
 
-**Challenge:** the input timestamp must be sortable, yet the output should preserve the exact timestamp string that was received.
+**Challenge:** the input timestamp must be sortable and carried through the pipeline without lossy string handling.
 
-**Approach:** `Delivery` stores both a parsed `Instant` and the original `rawDeliveryTime`. Enums use `@JsonCreator` / `@JsonValue` so wire names such as `cancelled` map cleanly to Java values such as `CANCELED`, with case-insensitive input matching. `ObjectMapperFactory` centralizes mapper tuning.
+**Approach:** `Delivery` binds `delivery_time` directly to an `Instant`, and `OutputDelivery` exposes that same `Instant` for serialization. `ObjectMapperFactory` registers `JavaTimeModule` and disables timestamp output, so instants are written as ISO-8601 strings. Enums use `@JsonCreator` / `@JsonValue` so wire names such as `cancelled` map cleanly to Java values such as `CANCELED`, with case-insensitive input matching.
 
-**Payoff:** sorting operates on real instants without silently reformatting timestamps in the output, and JSON concerns stay in the model layer rather than leaking into processing logic.
+**Payoff:** sorting operates on real instants, and timestamps are never parsed or formatted by hand between input and output; JSON concerns stay in the model layer rather than leaking into processing logic.
 
 ### Contract tests built around realistic fixtures
 
@@ -360,7 +360,7 @@ Useful entry points for review:
 
 - [`OrderStreamProcessorImpl.readOrders`](src/main/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorImpl.java) — the bounded read loop and per-line error handling.
 - [`OrderStreamProcessorImpl.createOutputDeliveries`](src/main/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorImpl.java) — grouping, sorting and aggregation.
-- [`Delivery`](src/main/java/com/brunovidotto/orderstream/impl/model/input/Delivery.java) — the dual parsed/raw timestamp representation.
+- [`Delivery`](src/main/java/com/brunovidotto/orderstream/impl/model/input/Delivery.java) — the `Instant`-typed timestamp model.
 - [`OrderStatus`](src/main/java/com/brunovidotto/orderstream/impl/model/input/OrderStatus.java) — custom JSON enum mapping and domain validation.
 
 ## Technical Decisions and Trade-offs

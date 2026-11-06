@@ -2,6 +2,7 @@ package com.brunovidotto.orderstream.impl.model.output;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,14 +18,14 @@ import java.util.List;
  * </ul>
  *
  * @param deliveryId     The unique identifier for the delivery.
- * @param deliveryTime   The scheduled delivery time in ISO 8601 format.
+ * @param deliveryTime   The scheduled delivery time as an {@link Instant}.
  * @param deliveryStatus The status of this delivery in the output ("delivered" or "cancelled").
  * @param orders         The list of orders (by {@code orderId} and {@code amount}) for this delivery.
  * @param totalAmount    The total amount in cents of all "delivered" orders, or {@code null} if none were delivered.
  */
 public record OutputDelivery(
     @JsonProperty("delivery_id") String deliveryId,
-    @JsonProperty("delivery_time") String deliveryTime,
+    @JsonProperty("delivery_time") Instant deliveryTime,
     @JsonProperty("delivery_status") DeliveryStatus deliveryStatus,
     List<OutputOrder> orders,
     @JsonProperty("total_amount") Integer totalAmount
@@ -34,7 +35,7 @@ public record OutputDelivery(
      */
     public static class Builder {
         private String deliveryId;
-        private String deliveryTime;
+        private Instant deliveryTime;
         private DeliveryStatus deliveryStatus;
         private List<OutputOrder> orders = new ArrayList<>();
         private Integer totalAmount;
@@ -58,10 +59,10 @@ public record OutputDelivery(
         /**
          * Sets the delivery time.
          *
-         * @param deliveryTime The scheduled delivery time in ISO 8601 format.
+         * @param deliveryTime The scheduled delivery time as an {@link Instant}.
          * @return The builder instance.
          */
-        public Builder deliveryTime(String deliveryTime) {
+        public Builder deliveryTime(Instant deliveryTime) {
             this.deliveryTime = deliveryTime;
             return this;
         }

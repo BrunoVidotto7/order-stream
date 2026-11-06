@@ -1,0 +1,2 @@
+{"order_id":"1","order_status":"delivered","delivery":{"delivery_id":"D1","delivery_time":"2023-06-01T10:00:00Z"},"amount":null}
+{"order_id":"2","order_status":"delivered","delivery":{"delivery_id":"D1","delivery_time":"2023-06-01T10:00:00Z"},"amount":50}

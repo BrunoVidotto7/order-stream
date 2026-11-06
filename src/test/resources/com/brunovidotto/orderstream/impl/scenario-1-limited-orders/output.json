@@ -1,0 +1,14 @@
+[
+  {
+    "delivery_id":"DEL-1",
+    "delivery_time":"2022-05-20T10:00:00Z",
+    "delivery_status":"delivered",
+    "orders":[
+      {
+        "order_id":"A",
+        "amount":100
+      }
+    ],
+    "total_amount":100
+  }
+]

@@ -1,0 +1,46 @@
+[
+  {
+    "delivery_id":"DEL-0",
+    "delivery_time":"2023-01-01T09:00:00Z",
+    "delivery_status":"cancelled",
+    "orders": [
+      {
+        "order_id":"55",
+        "amount":5555
+      }
+    ],
+    "total_amount": null
+  },
+  {
+    "delivery_id":"DEL-1",
+    "delivery_time":"2023-01-01T09:00:00Z",
+    "delivery_status":"delivered",
+    "orders": [
+      {
+        "order_id":"30",
+        "amount":500
+      },
+      {
+        "order_id":"29",
+        "amount":9999
+      }
+    ],
+    "total_amount": 500
+  },
+  {
+    "delivery_id":"DEL-2",
+    "delivery_time":"2023-01-01T09:00:00Z",
+    "delivery_status":"delivered",
+    "orders": [
+      {
+        "order_id":"50",
+        "amount":1234
+      },
+      {
+        "order_id":"28",
+        "amount":111
+      }
+    ],
+    "total_amount": 111
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "delivery_id":"D1",
+    "delivery_time":"2023-06-01T10:00:00Z",
+    "delivery_status":"delivered",
+    "orders": [
+      {
+        "order_id":"2",
+        "amount":50
+      },
+      {
+        "order_id":"1",
+        "amount":null
+      }
+    ],
+    "total_amount": 50
+  }
+]

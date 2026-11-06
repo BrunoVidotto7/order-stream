@@ -1,0 +1,2 @@
+{"order_id":"N1","order_status":"some-other","delivery":{"delivery_id":"NDEL-1","delivery_time":"2022-10-10T10:00:00Z"},"amount":999}
+{"order_id":"N2","order_status":"unknown","delivery":{"delivery_id":"NDEL-2","delivery_time":"2022-10-10T11:00:00Z"},"amount":111}

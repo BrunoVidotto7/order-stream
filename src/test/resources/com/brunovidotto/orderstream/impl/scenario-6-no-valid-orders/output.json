@@ -1,0 +1,18 @@
+[
+  {
+    "delivery_id":"BLANK-1",
+    "delivery_time":"2022-12-01T12:00:00Z",
+    "delivery_status":"delivered",
+    "orders": [
+      {
+        "order_id":"B2",
+        "amount":200
+      },
+      {
+        "order_id":"B1",
+        "amount":42
+      }
+    ],
+    "total_amount":42
+  }
+]

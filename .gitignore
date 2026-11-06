@@ -1,0 +1,14 @@
+# General development.
+.DS_Store
+*.swp
+
+# Java development.
+.attach_pid*
+.classpath
+.factorypath
+.idea
+.java-version
+.project
+.settings
+target
+*.iml

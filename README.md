@@ -1,84 +1,136 @@
 # Order Stream
 
-A small Java 21 CLI that processes a live stream of JSON orders: it filters, groups, sorts and
-aggregates them, then writes a single JSON document to standard output.
+**A bounded, fault-tolerant JSON order stream processor for the JVM.**
 
-The project is a compact example of stream-oriented processing with a clean separation between the
-public API, the processing implementation and the input/output models. It uses Jackson for JSON,
-`ServiceLoader` for pluggable processor implementations, and JUnit 5 for parameterised,
-fixture-driven tests.
+Java 21 · Maven · Jackson · `ServiceLoader` SPI
 
-## What it does
+Order Stream is a command-line tool and embeddable library that turns a noisy, newline-delimited JSON order feed into a deterministic delivery-level summary. It reads within an explicit order and time budget, skips keep-alive lines and malformed records, groups relevant orders by delivery, and writes a single JSON array to an output stream.
 
-The processor reads newline-delimited JSON orders from an `InputStream`. Reading stops when any of
-the following happens:
+Order feeds are rarely clean. They mix order states, contain blank keep-alive lines, occasionally emit malformed records, and may never end. Naive processors either stop at the first bad line or buffer an unbounded stream without a clear stopping rule. Order Stream makes those ingestion limits and aggregation rules explicit, isolates failures per line, and produces stable, explicitly sorted output.
 
-- the maximum number of orders has been read,
-- the time budget has elapsed,
-- the input stream ends.
+The codebase is deliberately compact — one processing pipeline, a narrow API, and a fixture-driven test suite — which keeps the design decisions easy to inspect.
 
-Only `delivered` and `cancelled` orders are retained. The retained orders are then:
+## At a Glance
 
-- grouped by delivery ID,
-- ordered by delivery time (ascending), breaking ties by delivery ID (ascending),
-- ordered within each delivery by order ID (descending),
-- summarised with a delivery status and a total amount for delivered orders.
+| Attribute | Detail |
+|:--|:--|
+| **Interface** | CLI over stdin/stdout; embeddable Java API over `InputStream` / `OutputStream` |
+| **Processing model** | Incremental line-by-line ingestion, then in-memory grouping, sorting and aggregation |
+| **Extension point** | `ServiceLoader` SPI, registered at compile time with `@AutoService` |
+| **Data handling** | Jackson-bound records, custom enum creators, ISO-8601 timestamps |
+| **Testing** | 12 JUnit 5 tests, including parameterized JSON fixtures compared with `JSONAssert` in strict mode |
+| **External services** | None; all libraries are bundled in the fat JAR |
 
-The result is written to an `OutputStream` as a JSON array.
+## Key Features
 
-## Requirements
+- **Two independent ingestion budgets.** Reading stops at whichever comes first: a maximum number of non-blank lines, an elapsed time budget, or end of input.
+- **Status-aware filtering.** Only `delivered` and `cancelled` orders are retained. `created` orders and unknown statuses never reach the aggregation stage.
+- **Delivery-level aggregation.** Orders are grouped by `delivery_id`; each delivery receives a derived status and a total of its delivered amounts.
+- **Deterministic ordering.** Deliveries are sorted by delivery time ascending, then delivery ID ascending. Orders within a delivery are sorted by order ID descending. The same input sequence always produces the same output ordering, independent of hash-map iteration order.
+- **Fault isolation per line.** Blank keep-alive lines are ignored, and malformed JSON or unknown statuses are logged and skipped without terminating the stream.
+- **Pluggable processor implementation.** The CLI depends only on public interfaces and discovers the implementation at runtime, so a different processor can be supplied without changing the entry point.
+- **Typed wire models.** Input and output shapes are represented as records with explicit JSON property names and enum mappings.
+- **Predictable empty result.** Empty input, exhausted budgets, or a stream with no relevant orders all produce `[]`, never `null`.
 
-- JDK 21+
-- Maven 3.8+
+## Tech Stack
 
-## Build and test
+| Layer | Technology | Role |
+|:--|:--|:--|
+| Language | **Java 21** | Records, sequenced collections (`List.getFirst()`), modern JDK APIs |
+| Build | **Maven** | Dependency management with Jackson and JUnit BOMs, compiler configured for release 21 |
+| JSON | **Jackson** (`jackson-core`, `jackson-databind`) | JSON binding and serialization, record support, custom enum (de)serialization |
+| Logging | **SLF4J** + **Logback** | Structured processing logs with configurable levels |
+| Modularity | **`java.util.ServiceLoader`** + **Google AutoService** | Runtime discovery of the processor factory |
+| Testing | **JUnit 5** (Jupiter, parameterized tests) + **JSONAssert** | Fixture-driven contract tests with strict JSON comparison |
+| Packaging | **Maven Assembly Plugin** | Self-contained executable JAR with dependencies |
 
-```bash
-mvn clean verify
+No databases, message brokers, web frameworks, or external services are involved. The runtime surface is stdin/stdout (or caller-supplied streams) only. Because the tool runs entirely over local streams, it has no authentication, authorization, persistence, or network layer; input validation is limited to JSON binding and enum parsing.
+
+## Architecture
+
+The project separates the public contract from the implementation. The `api` package contains only interfaces and the CLI entry point; `impl` contains the processing pipeline and models. The two are connected at runtime through `ServiceLoader`, not through a compile-time reference.
+
+```mermaid
+flowchart LR
+    subgraph input["Input"]
+        STDIN["stdin / InputStream<br/>newline-delimited JSON"]
+    end
+
+    subgraph api["Public API — api"]
+        APP["StdioStreamApplication<br/>CLI entry point"]
+        FACTORY["OrderStreamProcessorFactory"]
+        PROCESSOR["OrderStreamProcessor"]
+    end
+
+    subgraph impl["Implementation — impl"]
+        IMPL["OrderStreamProcessorImpl"]
+        READ["readOrders()<br/>parse · filter · group"]
+        BUILD["createOutputDeliveries()<br/>sort · aggregate"]
+        MAPPER["ObjectMapperFactory<br/>Jackson configuration"]
+        MODELS["Input / output records<br/>and enums"]
+    end
+
+    subgraph output["Output"]
+        STDOUT["stdout / OutputStream<br/>JSON array"]
+    end
+
+    STDIN --> APP
+    APP -->|"ServiceLoader.load"| FACTORY
+    FACTORY -->|"createProcessor(maxOrders, maxTime)"| PROCESSOR
+    PROCESSOR -.->|"implemented by"| IMPL
+    IMPL --> READ --> BUILD --> MAPPER
+    MAPPER --> STDOUT
+    MODELS -.-> READ
+    MODELS -.-> BUILD
 ```
 
-The build runs the full test suite and produces a runnable fat JAR:
+### Component Responsibilities
 
-```text
-target/order-stream-1.0.0-jar-with-dependencies.jar
-```
+| Component | Responsibility |
+|:--|:--|
+| [`StdioStreamApplication`](src/main/java/com/brunovidotto/orderstream/api/StdioStreamApplication.java) | Parses CLI arguments, loads the first service provider, and pipes `System.in` to `System.out`. |
+| [`OrderStreamProcessor`](src/main/java/com/brunovidotto/orderstream/api/OrderStreamProcessor.java) | Core contract: process a source stream into a sink stream, with a documented non-closing intent for both. |
+| [`OrderStreamProcessorFactory`](src/main/java/com/brunovidotto/orderstream/api/OrderStreamProcessorFactory.java) | Creates a processor with an order limit and a time limit. |
+| [`OrderStreamProcessorImpl`](src/main/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorImpl.java) | The complete read → filter → group → sort → aggregate → serialize pipeline. |
+| [`OrderStreamProcessorFactoryImpl`](src/main/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorFactoryImpl.java) | Service provider registered via `@AutoService(OrderStreamProcessorFactory.class)`. |
+| [`ObjectMapperFactory`](src/main/java/com/brunovidotto/orderstream/impl/ObjectMapperFactory.java) | Central Jackson configuration; disables automatic target closing so the sink remains caller-owned. |
+| [`impl/model/input`](src/main/java/com/brunovidotto/orderstream/impl/model/input) | Immutable input records (`Order`, `Delivery`) and the `OrderStatus` enum with custom Jackson creators. |
+| [`impl/model/output`](src/main/java/com/brunovidotto/orderstream/impl/model/output) | Output records (`OutputDelivery`, `OutputOrder`), the `DeliveryStatus` enum, and a builder for deliveries. |
+| [`InvalidOrderStatusException`](src/main/java/com/brunovidotto/orderstream/exception/InvalidOrderStatusException.java) | Domain exception for unrecognized status values; Jackson wraps it as a mapping failure. |
 
-## Usage
+### Processing Pipeline
 
-The CLI takes two arguments:
+1. **Bounded read.** A `BufferedReader` reads one line at a time until the line budget, the time budget, or EOF is reached. Blank lines are skipped before the counter advances; non-blank lines always count, whether or not they later parse.
+2. **Parse and filter.** Each line is bound to an `Order` through Jackson. Parse failures are caught per line and logged. Successfully parsed orders are kept only if their status is `DELIVERED` or `CANCELED`; retained orders are grouped by `delivery_id` in a `HashMap`.
+3. **Transform and aggregate.** Each group becomes an `OutputDelivery`. Orders are sorted by ID descending, the delivery status is derived from its orders, and delivered amounts are summed with null amounts ignored.
+4. **Serialize.** The delivery list is sorted globally by delivery time and ID, then written as one JSON array through the configured `ObjectMapper`.
 
-```bash
-java -jar target/order-stream-1.0.0-jar-with-dependencies.jar <maxOrders> <maxTime>
-```
+All per-run state is local to `process()`. A processor instance holds only its configuration and a Jackson mapper; no state leaks between invocations.
 
-- `maxOrders` — maximum number of input lines to read.
-- `maxTime` — maximum time to spend reading, as an ISO-8601 duration (for example `PT30S`).
+### Input Contract
 
-Example:
-
-```bash
-cat orders.json-stream | java -jar target/order-stream-1.0.0-jar-with-dependencies.jar 100 PT30S
-```
-
-### Input
-
-Each line is a complete order object:
+Each non-blank line is one complete JSON object:
 
 ```json
 {"order_id":"1234567890","order_status":"delivered","delivery":{"delivery_id":"d923jd29j91d1gh6","delivery_time":"2022-05-20T11:50:48Z"},"amount":6477}
 ```
 
-| Field          | Type   | Description                                              |
-|:---------------|:-------|:---------------------------------------------------------|
-| `order_id`     | String | Unique order identifier.                                 |
-| `order_status` | String | One of `created`, `delivered` or `cancelled`.            |
-| `delivery`     | Object | Delivery details, containing `delivery_id` and `delivery_time`. |
-| `amount`       | Number | Paid amount in cents; may be `null`.                     |
+| Field | Type | Description |
+|:--|:--|:--|
+| `order_id` | String | Order identifier, expected to be unique. Ordering uses lexicographic string comparison, not numeric comparison. |
+| `order_status` | String | `created`, `delivered`, or `cancelled` (case-insensitive on input). |
+| `delivery.delivery_id` | String | Groups orders into a delivery. |
+| `delivery.delivery_time` | ISO-8601 instant | Parsed to `Instant` for sorting and preserved as the original string for output. |
+| `amount` | Integer or `null` | Amount in cents. May be absent or `null`. |
 
-Blank lines are treated as keep-alives and skipped. Lines that cannot be parsed are logged and
-skipped, without stopping the rest of the stream.
+Handling rules:
 
-### Output
+- Whitespace-only lines are treated as keep-alives and skipped without consuming the order budget.
+- A non-blank line that is not valid JSON, or whose status is unknown, is logged at `WARN` and skipped. It does count toward `maxOrders`.
+- `created` orders parse successfully but are filtered out after parsing.
+- `maxOrders = 0` or `maxTime = PT0S` produces `[]` without reading meaningful input.
+
+### Output Contract
 
 ```json
 [
@@ -87,51 +139,254 @@ skipped, without stopping the rest of the stream.
     "delivery_time": "2022-05-20T11:50:48Z",
     "delivery_status": "delivered",
     "orders": [
-      {
-        "order_id": "1234567890",
-        "amount": 6477
-      }
+      { "order_id": "1234567891", "amount": 249 },
+      { "order_id": "1234567890", "amount": 6477 }
     ],
-    "total_amount": 6477
+    "total_amount": 6726
   }
 ]
 ```
 
-A delivery is marked `delivered` if at least one of its orders was delivered. Its `total_amount` is
-the sum of the amounts of its delivered orders, or `null` when no order was delivered.
+| Rule | Behavior |
+|:--|:--|
+| Delivery ordering | `delivery_time` ascending, then `delivery_id` ascending |
+| Order ordering | `order_id` descending, lexicographic |
+| `delivery_status` | `delivered` if at least one contained order is delivered; otherwise `cancelled` |
+| `total_amount` | Sum of non-null amounts of **delivered** orders only; `0` if delivered orders exist but all amounts are null, and `null` when no order was delivered |
+| `orders` | All retained orders in the delivery, delivered and cancelled alike |
+| Empty result | `[]` |
 
-## Project structure
+This means cancelled order amounts never inflate `total_amount`, and a delivery with one delivered order plus several cancelled orders is still reported as `delivered`.
 
-```text
-src/main/java/com/brunovidotto/orderstream
-├── api          Public interfaces and the CLI entry point
-├── exception    Domain exceptions
-└── impl         Processing implementation, factory and I/O models
+## Engineering Highlights
+
+### A narrow public API with runtime SPI discovery
+
+**Challenge:** keep the CLI independent of the processing implementation so the pipeline can be replaced without editing the entry point.
+
+**Approach:** `api` exposes only `OrderStreamProcessor` and `OrderStreamProcessorFactory`. The implementation is annotated with `@AutoService`, which generates the `META-INF/services` descriptor during compilation; `StdioStreamApplication` resolves it with `ServiceLoader`.
+
+**Payoff:** the dependency direction is clean (implementation → API, never the reverse), and alternative processors can be dropped onto the classpath. The test suite also asserts that exactly one provider is registered, catching accidental duplicate implementations early.
+
+### Two budgets that model ingested work, not retained output
+
+**Challenge:** a live stream may be effectively unbounded, while downstream consumers still need a bounded run.
+
+**Approach:** the read loop stops at `maxOrders` non-blank lines, an elapsed `maxTime`, or EOF, whichever happens first. Filtered and malformed lines count toward the line budget, so the limit bounds work performed rather than the size of the result.
+
+**Payoff:** a run has a predictable upper bound on parsing effort even when most input is irrelevant. Ignored lines are not retained, so memory follows the number of relevant orders rather than the raw stream length.
+
+### Line-level fault isolation
+
+**Challenge:** one malformed record should not discard an otherwise usable batch.
+
+**Approach:** parsing is wrapped per line. `IOException` from Jackson is caught, logged, and converted to `null`; the loop continues. Unknown statuses surface through `InvalidOrderStatusException`, which Jackson wraps as a mapping failure and the same isolation path handles. A stream with zero relevant records still writes a valid `[]` document.
+
+**Payoff:** partial degradation instead of all-or-nothing processing, with the failing line visible in the logs for diagnosis.
+
+### Deterministic aggregation after unordered grouping
+
+**Challenge:** hash-map grouping has no stable iteration order, but consumers need stable, comparable output.
+
+**Approach:** orders are grouped in a `HashMap`, then sorted explicitly at two levels: deliveries by parsed `Instant` plus ID, and orders by ID descending. Delivery status and totals are derived in the same pass over each group.
+
+**Payoff:** output ordering is reproducible for a given input and does not depend on map iteration order — a property the fixture tests enforce with order-sensitive array comparison.
+
+### Wire-model fidelity with records and custom Jackson hooks
+
+**Challenge:** the input timestamp must be sortable, yet the output should preserve the exact timestamp string that was received.
+
+**Approach:** `Delivery` stores both a parsed `Instant` and the original `rawDeliveryTime`. Enums use `@JsonCreator` / `@JsonValue` so wire names such as `cancelled` map cleanly to Java values such as `CANCELED`, with case-insensitive input matching. `ObjectMapperFactory` centralizes mapper tuning.
+
+**Payoff:** sorting operates on real instants without silently reformatting timestamps in the output, and JSON concerns stay in the model layer rather than leaking into processing logic.
+
+### Contract tests built around realistic fixtures
+
+**Challenge:** aggregation logic has many interacting edge cases — statuses, nulls, ordering, budgets, and malformed input.
+
+**Approach:** a single parameterized JUnit 5 test runs eleven input/output fixture pairs through the real factory and processor, comparing the serialized result with `JSONAssert` in `STRICT` mode. A separate test verifies the `ServiceLoader` invariant.
+
+**Payoff:** tests exercise the public API and actual Jackson serialization rather than isolated helpers, and strict comparison catches unexpected fields or ordering regressions.
+
+## Getting Started
+
+### Prerequisites
+
+- **JDK 21** or newer (the compiler is configured with `--release 21`)
+- **Maven 3.8** or newer
+
+No environment variables, databases, message brokers, or external services are required. The repository does not include a Docker setup.
+
+### Build and Test
+
+```bash
+git clone https://github.com/BrunoVidotto7/order-stream.git
+cd order-stream
+mvn clean verify
 ```
 
-- `api/OrderStreamProcessor` — processes an input stream into an output stream.
-- `api/OrderStreamProcessorFactory` — creates processors with an order and time limit.
-- `impl/OrderStreamProcessorImpl` — the filtering, grouping, sorting and aggregation logic.
-- `impl/model` — immutable records for input and output data.
+The build runs the full test suite and produces a self-contained executable JAR:
 
-The processor implementation is discovered through `ServiceLoader`, so another implementation can
-be plugged in without changing the CLI.
+```text
+target/order-stream-1.0.0-jar-with-dependencies.jar
+```
 
-## Tests
+The plain library artifact is also produced as `target/order-stream-1.0.0.jar`.
 
-The test suite is parameterised over JSON fixtures covering:
+### Run the CLI
 
-- the happy path,
-- order and time limits,
-- ignored order statuses,
-- delivered versus cancelled deliveries,
-- `null` amounts,
-- blank and malformed lines,
-- empty streams,
-- service loading of exactly one processor factory.
+```bash
+java -jar target/order-stream-1.0.0-jar-with-dependencies.jar <maxOrders> <maxTime>
+```
 
-Run only the tests with:
+| Argument | Format | Meaning |
+|:--|:--|:--|
+| `maxOrders` | Integer | Maximum number of non-blank input lines to consume |
+| `maxTime` | ISO-8601 duration | Maximum time spent in the read loop, e.g. `PT30S`, `PT2M`, `PT0.5S` |
+
+Example:
+
+```bash
+java -jar target/order-stream-1.0.0-jar-with-dependencies.jar 100 PT30S \
+  < src/test/resources/com/brunovidotto/orderstream/impl/happy-path-input.json-stream
+```
+
+With that three-line fixture, the processor emits the following JSON (reformatted here for readability):
+
+```json
+[
+  {
+    "delivery_id": "j93jf923jf23jg9f",
+    "delivery_time": "2022-03-20T08:15:00Z",
+    "delivery_status": "delivered",
+    "orders": [{ "order_id": "1234567892", "amount": 4295 }],
+    "total_amount": 4295
+  },
+  {
+    "delivery_id": "d923jd29j91d1gh6",
+    "delivery_time": "2022-05-20T11:50:48Z",
+    "delivery_status": "delivered",
+    "orders": [
+      { "order_id": "1234567891", "amount": 249 },
+      { "order_id": "1234567890", "amount": 6477 }
+    ],
+    "total_amount": 6726
+  }
+]
+```
+
+> **Note:** the repository has no `logback.xml`, so Logback's default console appender writes diagnostic logs to stdout alongside the JSON document. This does not affect embedders that supply their own output stream. See [Known Limitations](#known-limitations).
+
+### Embed the API
+
+```java
+OrderStreamProcessorFactory factory = new OrderStreamProcessorFactoryImpl();
+OrderStreamProcessor processor = factory.createProcessor(1_000, Duration.ofSeconds(30));
+
+try (InputStream source = Files.newInputStream(Path.of("orders.json-stream"));
+     OutputStream sink = Files.newOutputStream(Path.of("deliveries.json"))) {
+    processor.process(source, sink);
+}
+```
+
+The same pipeline can be obtained through `ServiceLoader` when the implementation should not be referenced directly:
+
+```java
+OrderStreamProcessorFactory factory = ServiceLoader
+    .load(OrderStreamProcessorFactory.class)
+    .findFirst()
+    .orElseThrow();
+```
+
+The processor writes directly to the supplied sink; it does not require a file path, a temporary file, or a web server.
+
+## Testing and Code Quality
+
+Run the suite with:
 
 ```bash
 mvn test
 ```
+
+Or run tests and package the application in one step:
+
+```bash
+mvn clean verify
+```
+
+The suite currently contains **12 tests**: 11 parameterized fixture scenarios plus one service-loading invariant. It covers:
+
+- the happy path and multi-delivery ordering;
+- `maxOrders` truncation and zero-valued order/time budgets;
+- mixed delivered/cancelled orders within one delivery;
+- `null` amounts and sum semantics;
+- blank keep-alive lines, malformed JSON, and unknown statuses;
+- empty results;
+- exactly one registered `OrderStreamProcessorFactory`.
+
+Fixtures live under [`src/test/resources`](src/test/resources/com/brunovidotto/orderstream/impl), and the test class is [`OrderStreamProcessorFactoryImplTest`](src/test/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorFactoryImplTest.java). `JSONAssert` runs in `STRICT` mode, so the expected output must match completely, including array order; object member order is not significant.
+
+Additional quality practices visible in the codebase:
+
+- Jackson and JUnit versions are controlled through BOM imports rather than repeated version declarations.
+- Public interfaces and the main packages carry Javadoc and `package-info.java` descriptions.
+- Processing classes are `final`, wire models use records, and snake_case JSON names are declared with Jackson annotations where needed.
+- The processor keeps no mutable per-run state on the instance.
+
+**Not present in the repository:** a CI workflow, a linter or static-analysis plugin, a coverage threshold, and an end-to-end test that launches the packaged CLI. `mvn clean verify` is currently the only automated gate.
+
+## Project Structure
+
+```text
+order-stream/
+├── pom.xml
+└── src/
+    ├── main/java/com/brunovidotto/orderstream/
+    │   ├── api/                 Public contracts and CLI entry point
+    │   ├── exception/           Domain exception types
+    │   └── impl/
+    │       ├── model/
+    │       │   ├── input/       Order, Delivery, OrderStatus
+    │       │   └── output/      OutputDelivery, OutputOrder, DeliveryStatus
+    │       ├── ObjectMapperFactory.java
+    │       ├── OrderStreamProcessorFactoryImpl.java
+    │       └── OrderStreamProcessorImpl.java
+    └── test/
+        ├── java/.../impl/       Parameterized contract tests
+        └── resources/.../impl/  JSON input/expected-output fixtures
+```
+
+Useful entry points for review:
+
+- [`OrderStreamProcessorImpl.readOrders`](src/main/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorImpl.java) — the bounded read loop and per-line error handling.
+- [`OrderStreamProcessorImpl.createOutputDeliveries`](src/main/java/com/brunovidotto/orderstream/impl/OrderStreamProcessorImpl.java) — grouping, sorting and aggregation.
+- [`Delivery`](src/main/java/com/brunovidotto/orderstream/impl/model/input/Delivery.java) — the dual parsed/raw timestamp representation.
+- [`OrderStatus`](src/main/java/com/brunovidotto/orderstream/impl/model/input/OrderStatus.java) — custom JSON enum mapping and domain validation.
+
+## Technical Decisions and Trade-offs
+
+### Buffer retained orders for a deterministic global sort
+
+A true single-pass, constant-memory pipeline cannot emit a globally sorted result without knowing all deliveries in advance. The processor therefore reads incrementally but keeps relevant orders in memory, then sorts and aggregates at the end. Memory grows with the number of retained orders, while ignored lines are discarded immediately. For a bounded CLI run this is a deliberate trade-off: deterministic output over minimal memory.
+
+### Budgets bound work, not output size
+
+`maxOrders` counts input lines rather than retained orders. This makes resource usage predictable even when the feed contains many `created` or malformed records, but it also means the output can be much smaller than the budget. A separate "max retained orders" limit would be a different policy; the current contract is deliberately about ingestion work.
+
+### Time is a soft budget
+
+The deadline is computed with `System.currentTimeMillis()` and checked before each `readLine()` call. It bounds the loop between records, but it cannot preempt a blocking read when a producer stalls, and wall-clock time is sensitive to system clock adjustments. A monotonic clock combined with an interruptible source would be needed for a hard wall-clock guarantee. The current behavior is documented here rather than implied to be stronger than it is.
+
+### SPI discovery favors simplicity
+
+`ServiceLoader` keeps the CLI implementation-agnostic with no framework or container. The CLI takes the first provider, so multiple implementations would make selection arbitrary; the test that asserts exactly one provider protects that assumption. A named-provider selection mechanism would be the next step if multiple implementations were expected.
+
+## Known Limitations
+
+- **Logs share stdout with the CLI result.** Without a `logback.xml`, the default console appender writes to stdout, interleaving log lines with the JSON document. Directing logs to stderr is a one-file configuration change; embedders that provide their own `OutputStream` are unaffected.
+- **Source-stream ownership is inconsistent with the API annotation.** `OrderStreamProcessor` annotates both streams with `@WillNotClose`, and the sink is indeed left open (Jackson's `AUTO_CLOSE_TARGET` is disabled). The source, however, is wrapped in a `BufferedReader` that is closed at the end of reading, which also closes the caller's stream. Callers should assume the source is closed, or the implementation should be adjusted to honor the annotation.
+- **Required nested fields are not validated.** Per-line isolation covers JSON syntax and enum-mapping failures. A structurally valid order with a missing `delivery` object can still fail with a `NullPointerException` during grouping, because null-field validation is not part of the input model.
+- **CLI argument errors are not user-friendly.** Argument count is checked, but `Integer.parseInt` and `Duration.parse` failures surface as stack traces. `maxTime` must be a valid ISO-8601 duration such as `PT30S`.
+- **No end-to-end CLI test or CI pipeline.** The parameterized suite exercises the processor and factory directly; the packaged JAR entry point, argument parsing, and stdout/stderr behavior are not covered by an automated test.
+
+These are known boundaries of the current implementation, not claims about planned features.

@@ -1,6 +1,7 @@
 # General development.
 .DS_Store
 *.swp
+opencode.json
 
 # Java development.
 .attach_pid*

@@ -1,2 +1,4 @@
-{"order_id":"B1","order_status":"delivered","delivery":{"delivery_id":"BLANK-1","delivery_time":"2022-12-01T12:00:00Z"},"amount":42}
-{"order_id":"B2","order_status":"cancelled","delivery":{"delivery_id":"BLANK-1","delivery_time":"2022-12-01T12:00:00Z"},"amount":200}id":"2","order_status":"delivered","delivery":{"delivery_id":"D1","delivery_time":"2023-06-01T10:00:00Z"},"amount":50}
+{"order_id":"C1","order_status":"created","delivery":{"delivery_id":"NV-1","delivery_time":"2022-12-01T12:00:00Z"},"amount":10}
+{"order_id":"U1","order_status":"unknown","delivery":{"delivery_id":"NV-2","delivery_time":"2022-12-01T12:00:00Z"},"amount":20}
+this is not json
+{"order_id":"M1","order_status":"delivered","amount":30}

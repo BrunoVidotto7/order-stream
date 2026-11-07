@@ -1,0 +1,14 @@
+[
+  {
+    "delivery_id": "KEEP-1",
+    "delivery_time": "2022-12-01T12:00:00Z",
+    "delivery_status": "delivered",
+    "orders": [
+      {
+        "order_id": "K1",
+        "amount": 42
+      }
+    ],
+    "total_amount": 42
+  }
+]

@@ -1,1 +1,1 @@
-{"order_id":"10","order_status":"canceled","delivery":{"delivery_id":"C1","delivery_time":"2022-05-20T10:00:00Z"},"amount":100}
+{"order_id":"10","order_status":"delivered","delivery":{"delivery_id":"C1","delivery_time":"2022-05-20T10:00:00Z"},"amount":100}

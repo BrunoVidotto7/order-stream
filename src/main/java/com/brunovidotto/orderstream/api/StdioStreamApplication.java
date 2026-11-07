@@ -2,6 +2,7 @@ package com.brunovidotto.orderstream.api;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.format.DateTimeParseException;
 import java.util.Iterator;
 import java.util.ServiceLoader;
 
@@ -19,25 +20,38 @@ public final class StdioStreamApplication {
      */
     public static void main(String[] args) throws IOException {
         if (args.length != 2) {
-            System.err.printf("Usage:%n  java -jar application.jar <maxOrders> <maxTime>%n");
-            System.exit(1);
+            exitWithUsage("Expected exactly two arguments.");
+            return;
         }
 
-        int maxOrders = Integer.parseInt(args[0]);
-        Duration maxTime = Duration.parse(args[1]);
+        final OrderStreamProcessor processor;
+        try {
+            processor = createProcessor(Integer.parseInt(args[0]), Duration.parse(args[1]));
+        } catch (IllegalArgumentException | DateTimeParseException e) {
+            exitWithUsage("Invalid arguments: maxOrders must be a non-negative integer and maxTime "
+                    + "a non-negative ISO-8601 duration such as PT30S.");
+            return;
+        }
 
-        processStdio(maxOrders, maxTime);
+        processor.process(System.in, System.out);
+        if (System.out.checkError()) {
+            System.err.println("Failed to write output.");
+            System.exit(1);
+        }
     }
 
-    private static void processStdio(int maxOrders, Duration maxTime) throws IOException {
+    private static void exitWithUsage(String message) {
+        System.err.printf("%s%nUsage:%n  java -jar application.jar <maxOrders> <maxTime>%n", message);
+        System.exit(1);
+    }
+
+    private static OrderStreamProcessor createProcessor(int maxOrders, Duration maxTime) {
         Iterator<OrderStreamProcessorFactory> factories =
                 ServiceLoader.load(OrderStreamProcessorFactory.class).iterator();
         if (!factories.hasNext()) {
             throw new IllegalStateException("No OrderStreamProcessorFactory found");
         }
 
-        OrderStreamProcessorFactory factory = factories.next();
-        OrderStreamProcessor processor = factory.createProcessor(maxOrders, maxTime);
-        processor.process(System.in, System.out);
+        return factories.next().createProcessor(maxOrders, maxTime);
     }
 }

@@ -60,25 +60,25 @@ final class OrderStreamProcessorFactoryImplTest {
             // 4) Null Amounts Handling: Ensures null amounts in delivered orders don't affect total.
             Arguments.of(
                 10,
-                Duration.ofMillis(500),
+                Duration.ofSeconds(30),
                 "scenario-4-null-amounts/input.json-stream",
                 "scenario-4-null-amounts/output.json"
             ),
-            // 5) Blank Lines Handling: Verifies blank lines are skipped without affecting processing.
+            // 5) Blank Lines Handling: Blank lines are skipped and do not consume the maxOrders budget.
             Arguments.of(
-                10,
-                Duration.ofMillis(30),
+                1,
+                Duration.ofSeconds(30),
                 "scenario-5-blank-lines/input.json-stream",
-                "empty-output.json"
+                "scenario-5-blank-lines/output.json"
             ),
             // 6) No Valid Orders: Ensures output is empty when no valid orders are present.
             Arguments.of(
                 5,
-                Duration.ofMillis(30),
+                Duration.ofSeconds(30),
                 "scenario-6-no-valid-orders/input.json-stream",
-                "scenario-6-no-valid-orders/output.json"
+                "empty-output.json"
             ),
-            // 7) Null Input Stream: Confirms behavior when the input stream is null (should return an empty result).
+            // 7) Null Record: A JSON null record is rejected and the result is empty.
             Arguments.of(
                 10, Duration.ofSeconds(30),
                 "scenario-7-null-input/input.json-stream",
@@ -98,7 +98,7 @@ final class OrderStreamProcessorFactoryImplTest {
                 "scenario-9-zero-max-time/input.json-stream",
                 "empty-output.json"
             ),
-            // 10) skip malformed lines: No lines should be processed if maxTime is set to zero.
+            // 10) Skip malformed lines: Malformed and blank lines are skipped; valid records are still processed.
             Arguments.of(
                 10,
                 Duration.ofSeconds(30),

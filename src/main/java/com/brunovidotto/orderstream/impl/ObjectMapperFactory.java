@@ -1,6 +1,7 @@
 package com.brunovidotto.orderstream.impl;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -22,6 +23,12 @@ final class ObjectMapperFactory {
         objectMapper.registerModule(new JavaTimeModule());
         // Write date as ISO-8601 strings
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+        // Reject lines with anything after the first JSON value
+        objectMapper.enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+
+        // Reject every floating-point token (12.5, 12.0, 1e2) instead of converting it to int
+        objectMapper.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
 
         return objectMapper;
     }

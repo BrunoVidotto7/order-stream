@@ -28,7 +28,7 @@ public record OutputDelivery(
     @JsonProperty("delivery_time") Instant deliveryTime,
     @JsonProperty("delivery_status") DeliveryStatus deliveryStatus,
     List<OutputOrder> orders,
-    @JsonProperty("total_amount") Integer totalAmount
+    @JsonProperty("total_amount") Long totalAmount
 ) {
     /**
      * Builder for {@link OutputDelivery} to facilitate object construction.
@@ -38,7 +38,7 @@ public record OutputDelivery(
         private Instant deliveryTime;
         private DeliveryStatus deliveryStatus;
         private List<OutputOrder> orders = new ArrayList<>();
-        private Integer totalAmount;
+        private Long totalAmount;
 
         public Builder() {
             // This constructor is intentionally empty, as it allows for a step-by-step
@@ -106,7 +106,7 @@ public record OutputDelivery(
          * @param totalAmount The total amount in cents, or {@code null} if no delivered orders exist.
          * @return The builder instance.
          */
-        public Builder totalAmount(Integer totalAmount) {
+        public Builder totalAmount(Long totalAmount) {
             this.totalAmount = totalAmount;
             return this;
         }
